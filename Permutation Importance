@@ -1,8 +1,33 @@
 # ============================================================
-# Permutation Importance auf die DREI TRAINIERTEN Modelle
-# model_trained (LogReg), model_rf (RF), model_gb (Gradient Boosting)
+# Permutation Importance auf die VIER TRAINIERTEN Modelle
+# model_trained (LogReg), model_rf (RF), model_gb (GB), model (MLP)
 # Testdaten: X_test1, y_test1 (gleicher Split für alle Modelle)
 # ============================================================
+
+from sklearn.base import BaseEstimator, ClassifierMixin
+
+
+# PyTorch-Wrapper damit sklearn mit dem MLP arbeiten kann
+class PyTorchWrapper(BaseEstimator, ClassifierMixin):
+    def __init__(self, torch_model):
+        self.torch_model = torch_model
+        self.torch_model.eval()
+        self.classes_ = np.array([0, 1])
+
+    def fit(self, X, y):
+        return self
+
+    def predict(self, X):
+        with torch.no_grad():
+            t = torch.tensor(X, dtype=torch.float32).to(device)
+            return (torch.sigmoid(self.torch_model(t)) > 0.5).cpu().numpy().flatten().astype(int)
+
+    def score(self, X, y):
+        return (self.predict(X) == y).mean()
+
+
+model_mlp_wrapped = PyTorchWrapper(model)
+
 
 # 1. Permutation Importance berechnen
 print("Berechne Permutation Importance für Logistische Regression...")
@@ -21,6 +46,12 @@ print("Berechne Permutation Importance für Gradient Boosting...")
 result_gb = permutation_importance(
     model_gb, X_test1, y_test1,
     n_repeats=10, random_state=42, n_jobs=-1, scoring="balanced_accuracy"
+)
+
+print("Berechne Permutation Importance für MLP (Neural Network)...")
+result_mlp = permutation_importance(
+    model_mlp_wrapped, X_test1.values.astype(np.float32), y_test1,
+    n_repeats=10, random_state=42, n_jobs=1, scoring="balanced_accuracy"
 )
 
 # ============================================================
@@ -57,17 +88,19 @@ def get_importance_df(result, column_groups, X_data):
 df_logreg = get_importance_df(result_logreg, column_groups, X_test1)
 df_rf = get_importance_df(result_rf, column_groups, X_test1)
 df_gb = get_importance_df(result_gb, column_groups, X_test1)
+df_mlp = get_importance_df(result_mlp, column_groups, X_test1)
 
 # Sortieren (nach Gradient Boosting für konsistente Reihenfolge)
 df_gb_sorted = df_gb.sort_values("Importance", ascending=True)
 sort_order = df_gb_sorted["Variable"].tolist()
 df_logreg_sorted = df_logreg.set_index("Variable").reindex(sort_order).reset_index()
 df_rf_sorted = df_rf.set_index("Variable").reindex(sort_order).reset_index()
+df_mlp_sorted = df_mlp.set_index("Variable").reindex(sort_order).reset_index()
 
 # ============================================================
-# 3. Plot: Alle drei Modelle nebeneinander
+# 3. Plot: Alle vier Modelle nebeneinander
 # ============================================================
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 8), sharey=True)
+fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(30, 8), sharey=True)
 
 # Links: Logistische Regression
 ax1.barh(df_logreg_sorted["Variable"], df_logreg_sorted["Importance"], xerr=df_logreg_sorted["Std"],
@@ -76,21 +109,28 @@ ax1.set_title("Logistische Regression", fontsize=12, fontweight="bold")
 ax1.set_xlabel("Balanced Accuracy-Abfall")
 ax1.grid(True, axis="x", linestyle=":", alpha=0.6)
 
-# Mitte: Random Forest
+# Mitte links: Random Forest
 ax2.barh(df_rf_sorted["Variable"], df_rf_sorted["Importance"], xerr=df_rf_sorted["Std"],
          color="darkorange", capsize=4, edgecolor="white")
 ax2.set_title("Random Forest", fontsize=12, fontweight="bold")
 ax2.set_xlabel("Balanced Accuracy-Abfall")
 ax2.grid(True, axis="x", linestyle=":", alpha=0.6)
 
-# Rechts: Gradient Boosting
+# Mitte rechts: Gradient Boosting
 ax3.barh(df_gb_sorted["Variable"], df_gb_sorted["Importance"], xerr=df_gb_sorted["Std"],
          color="forestgreen", capsize=4, edgecolor="white")
 ax3.set_title("Gradient Boosting", fontsize=12, fontweight="bold")
 ax3.set_xlabel("Balanced Accuracy-Abfall")
 ax3.grid(True, axis="x", linestyle=":", alpha=0.6)
 
-fig.suptitle("Vergleich der Permutation Importance (3 Modelle)", fontsize=15, fontweight="bold")
+# Rechts: MLP (Neural Network)
+ax4.barh(df_mlp_sorted["Variable"], df_mlp_sorted["Importance"], xerr=df_mlp_sorted["Std"],
+         color="mediumpurple", capsize=4, edgecolor="white")
+ax4.set_title("MLP (Neural Network)", fontsize=12, fontweight="bold")
+ax4.set_xlabel("Balanced Accuracy-Abfall")
+ax4.grid(True, axis="x", linestyle=":", alpha=0.6)
+
+fig.suptitle("Vergleich der Permutation Importance (4 Modelle)", fontsize=15, fontweight="bold")
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
 
@@ -113,5 +153,11 @@ print("\n" + "=" * 55)
 print("PERMUTATION IMPORTANCE: GRADIENT BOOSTING")
 print("-" * 55)
 for _, r in df_gb_sorted.iloc[::-1].iterrows():
+    print(f"  {r['Variable']:<35} {r['Importance']:>+.4f}")
+
+print("\n" + "=" * 55)
+print("PERMUTATION IMPORTANCE: MLP (NEURAL NETWORK)")
+print("-" * 55)
+for _, r in df_mlp_sorted.iloc[::-1].iterrows():
     print(f"  {r['Variable']:<35} {r['Importance']:>+.4f}")
 print("=" * 55)
