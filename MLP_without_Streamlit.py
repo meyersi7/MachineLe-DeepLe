@@ -23,73 +23,27 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
 
 # ============================================================
-# 2) Daten generieren (Platzhalter — eigene Daten hier laden)
+# 2) Daten aus dem bestehenden ML-Split übernehmen
 # ============================================================
-np.random.seed(42)
-N = 1000
+# X_train1, X_test1, y_train1, y_test1 kommen aus der Zelle oben
+# (train_test_split mit test_size=0.25, random_state=0)
 
-df = pd.DataFrame({
-    # --- numerische Features ---
-    "Age":              np.random.randint(18, 70, N),
-    "Income":           np.random.normal(50000, 15000, N),
-    "Spend_Score":      np.random.uniform(0, 100, N),
-    "Membership_Years": np.random.randint(0, 15, N),
-    # --- kategorische Features ---
-    "Gender":    np.random.choice(["Male", "Female", "Other"], N),
-    "Region":    np.random.choice(["North", "South", "East", "West"], N),
-    "Device":    np.random.choice(["Mobile", "Desktop", "Tablet"], N),
-    "Plan_Type": np.random.choice(["Basic", "Premium", "Gold"], N),
-    # --- Zielvariable ---
-    "Target": (np.random.randint(18, 70, N) * 0.5
-               + np.random.uniform(0, 100, N) * 0.8 > 60).astype(int),
-})
-
-# ============================================================
-# 3) Features & Zielvariable definieren
-# ============================================================
-NUM_COLS = ["Age", "Income", "Spend_Score", "Membership_Years"]
-CAT_COLS = ["Gender", "Region", "Device", "Plan_Type"]
-TARGET   = "Target"
-
-# ============================================================
-# 4) Train / Val / Test Split  (VOR dem Preprocessing!)
-# ============================================================
-#    60% Train  |  20% Validation  |  20% Test
-X_raw = df[NUM_COLS + CAT_COLS]
-y_raw = df[TARGET].values.astype(np.float32)
-
-X_trainval, X_test_raw, y_trainval, y_test = train_test_split(
-    X_raw, y_raw, test_size=0.2, random_state=42, stratify=y_raw,
+# Train/Val Split (aus X_train1 einen Validation-Split erzeugen)
+X_train_nn, X_val_nn, y_train_nn, y_val_nn = train_test_split(
+    X_train1, y_train1, test_size=0.2, random_state=42, stratify=y_train1,
 )
-X_train_raw, X_val_raw, y_train, y_val = train_test_split(
-    X_trainval, y_trainval, test_size=0.25, random_state=42, stratify=y_trainval,
-)
-# 0.25 × 0.8 = 0.2  →  60/20/20
 
-# ============================================================
-# 5) Preprocessing: fit NUR auf Train, transform auf alle
-# ============================================================
-#    → kein Data Leakage mehr
+# In numpy float32 umwandeln
+X_train = X_train_nn.values.astype(np.float32)
+X_val   = X_val_nn.values.astype(np.float32)
+X_test  = X_test1.values.astype(np.float32)
 
-# Numerisch: StandardScaler
-scaler = StandardScaler()
-X_train_num = scaler.fit_transform(X_train_raw[NUM_COLS])       # fit + transform
-X_val_num   = scaler.transform(X_val_raw[NUM_COLS])             # nur transform
-X_test_num  = scaler.transform(X_test_raw[NUM_COLS])            # nur transform
-
-# Kategorisch: OneHotEncoder  (statt OrdinalEncoder → keine künstliche Reihenfolge)
-ohe = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
-X_train_cat = ohe.fit_transform(X_train_raw[CAT_COLS])          # fit + transform
-X_val_cat   = ohe.transform(X_val_raw[CAT_COLS])                # nur transform
-X_test_cat  = ohe.transform(X_test_raw[CAT_COLS])               # nur transform
-
-# Zusammenführen
-X_train = np.hstack([X_train_num, X_train_cat]).astype(np.float32)
-X_val   = np.hstack([X_val_num,   X_val_cat]).astype(np.float32)
-X_test  = np.hstack([X_test_num,  X_test_cat]).astype(np.float32)
+y_train = y_train_nn.values.astype(np.float32)
+y_val   = y_val_nn.values.astype(np.float32)
+y_test  = y_test1.values.astype(np.float32)
 
 # Feature-Namen für Permutation Importance
-FEATURE_NAMES = NUM_COLS + list(ohe.get_feature_names_out(CAT_COLS))
+FEATURE_NAMES = list(X_multi.columns)
 
 # pos_weight für Class Imbalance
 n_pos = y_train.sum()
@@ -98,7 +52,7 @@ pos_weight = torch.tensor([n_neg / max(n_pos, 1)]).to(device)
 
 print(f"\nTrain: {len(y_train)}  |  Val: {len(y_val)}  |  Test: {len(y_test)}")
 print(f"Klasse 1: {int(n_pos)}  |  Klasse 0: {int(n_neg)}  |  pos_weight: {pos_weight.item():.2f}")
-print(f"Features: {X_train.shape[1]}  ({len(NUM_COLS)} num + {X_train_cat.shape[1]} one-hot)")
+print(f"Features: {X_train.shape[1]}")
 
 # ============================================================
 # 6) Tensoren & DataLoader
@@ -261,7 +215,7 @@ print("=" * 50)
 INPUT_DIM  = X_train.shape[1]
 DROPOUT    = 0.2
 LR         = 1e-3
-EPOCHS     = 200         # höher setzen — Early Stopping bricht ab wenn nötig
+EPOCHS     = 1000         # höher setzen — Early Stopping bricht ab wenn nötig
 PATIENCE   = 15
 BATCH_SIZE = 64
 
